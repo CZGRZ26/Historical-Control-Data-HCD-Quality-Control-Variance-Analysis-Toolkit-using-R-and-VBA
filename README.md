@@ -16,7 +16,7 @@ This repository contains two annotated R scripts:
 - `hcd_qc_clean.R` — generates Individual–Moving Range (I-MR) control charts for mutation frequency quality control
 - `hcd_variance_enhanced.R` — performs REML-based variance components analysis for historical control data
 
-The QC workflow focuses on **study stability and outlier detection**, while the variance workflow focuses on **regulatory-style decomposition of variability** across studies and sampling days. :contentReference[oaicite:0]{index=0} :contentReference[oaicite:1]{index=1}
+The QC workflow focuses on **study stability and outlier detection**, while the variance workflow focuses on **regulatory-style decomposition of variability** across studies and sampling days.
 
 ---
 
@@ -24,7 +24,7 @@ The QC workflow focuses on **study stability and outlier detection**, while the 
 
 ### Purpose
 
-Detect studies or animals that deviate from expected mutation frequency variation using **Individual–Moving Range control charts**, a standard quality control approach for continuous laboratory data. The QC script uses study-mean normalization so that the analysis focuses on **within-study animal-to-animal variation** rather than systematic study-level shifts. :contentReference[oaicite:2]{index=2}
+Detect studies or animals that deviate from expected mutation frequency variation using **Individual–Moving Range control charts**, a standard quality control approach for continuous laboratory data. The QC script uses study-mean normalization so that the analysis focuses on **within-study animal-to-animal variation** rather than systematic study-level shifts.
 
 ### Key Features
 
@@ -46,7 +46,7 @@ Pre-cleaned CSV containing columns such as:
 - `Mut Freq x 10-6`
 - `Log10_MF`
 
-The script includes flexible column matching to handle variation in Excel-exported column names. :contentReference[oaicite:3]{index=3}
+The script includes flexible column matching to handle variation in Excel-exported column names.
 
 ### Outputs
 
