@@ -1,0 +1,322 @@
+Option Explicit
+
+' ============================================================
+' HCD Variance Components Analysis - ENHANCED VERSION v2
+' ============================================================
+' Improved error logging and diagnostics
+' ============================================================
+
+' --- CONFIGURATION ---
+Private Const R_VARIANCE_SCRIPT_PATH As String = "C:\Users\tno\Documents\Coding\HCD\hcd_variance_enhanced.R"
+Private Const R_EXE_PATH As String = "C:\Users\tno\AppData\Local\Programs\R\R-4.5.1\bin\Rscript.exe"
+
+' ============================================================
+' MAIN ENTRY POINT
+' ============================================================
+
+Sub Run_HCD_Variance_Analysis_Enhanced()
+    
+    Dim wb As Workbook
+    Dim wsData As Worksheet
+    Dim tempDir As String
+    Dim exportCSV As String
+    Dim outSummary As String
+    Dim outPlots As String
+    Dim outStatPlot As String
+    Dim outEnhPlot As String
+    Dim logFile As String
+    
+    Dim rScript As String
+    Dim rExe As String
+    Dim cmd As String
+    Dim exitCode As Long
+    
+    Dim resultsSheet As Worksheet
+    Dim startTime As Double
+    
+    startTime = Timer
+    Set wb = ThisWorkbook
+    
+    On Error GoTo ErrorHandler
+    
+    ' ===== STEP 1: Find data sheet =====
+    On Error Resume Next
+    Set wsData = wb.Sheets("PC.ENU1")
+    If wsData Is Nothing Then Set wsData = wb.Sheets("HCD Data")
+    If wsData Is Nothing Then Set wsData = wb.Sheets("HCD_Combined")
+    On Error GoTo ErrorHandler
+    
+    If wsData Is Nothing Then
+        MsgBox "Error: Could not find data sheet." & vbCrLf & vbCrLf & _
+               "Looking for: PC.ENU1, HCD Data, or HCD_Combined", _
+               vbCritical, "Sheet Not Found"
+        Exit Sub
+    End If
+    
+    ' ===== STEP 2: Validate R components =====
+    rScript = R_VARIANCE_SCRIPT_PATH
+    rExe = R_EXE_PATH
+    
+    If Dir(rExe) = "" Then
+        MsgBox "Error: Rscript.exe not found at:" & vbCrLf & rExe, _
+               vbCritical, "R Not Found"
+        Exit Sub
+    End If
+    
+    If Dir(rScript) = "" Then
+        MsgBox "Error: R variance script not found at:" & vbCrLf & rScript, _
+               vbCritical, "Script Not Found"
+        Exit Sub
+    End If
+    
+    ' ===== STEP 3: Setup temp directory =====
+    tempDir = Environ$("TEMP") & "\HCD_Variance\"
+    If Dir(tempDir, vbDirectory) = "" Then MkDir tempDir
+    
+    exportCSV = tempDir & "hcd_combined.csv"
+    outSummary = tempDir & "variance_summary.csv"
+    outPlots = tempDir & "variance_plots.png"
+    outStatPlot = tempDir & "variance_plots_figure1.png"
+    outEnhPlot = tempDir & "variance_plots_summary.png"
+    logFile = tempDir & "r_error.log"
+    
+    ' ===== STEP 4: Export data =====
+    Application.StatusBar = "Exporting data for variance analysis..."
+    ExportSheetToCSV wsData, exportCSV
+    
+    If Dir(exportCSV) = "" Then
+        MsgBox "Error: Failed to export data to CSV.", vbCritical, "Export Failed"
+        GoTo Cleanup
+    End If
+    
+    ' ===== STEP 5: Build R command with logging =====
+    ' Use cmd.exe to redirect output properly
+    cmd = "cmd.exe /c """ & """" & rExe & """" & _
+          " """ & rScript & """" & _
+          " """ & exportCSV & """" & _
+          " """ & outSummary & """" & _
+          " """ & outPlots & """" & _
+          " > """ & logFile & """ 2>&1"""
+    
+    ' ===== STEP 6: Run R analysis =====
+    Application.StatusBar = "Running variance analysis (please wait)..."
+    Application.ScreenUpdating = False
+    
+    exitCode = CreateObject("WScript.Shell").Run(cmd, 0, True)  ' Hidden window
+    
+    Application.ScreenUpdating = True
+    
+    If exitCode <> 0 Then
+        ' Read error log and show it
+        Dim errorMsg As String
+        errorMsg = ReadLogFile(logFile)
+        
+        MsgBox "R script failed with error code " & exitCode & vbCrLf & vbCrLf & _
+               "Error details:" & vbCrLf & _
+               "─────────────────────────────────" & vbCrLf & _
+               errorMsg & vbCrLf & _
+               "─────────────────────────────────" & vbCrLf & vbCrLf & _
+               "Full log saved to:" & vbCrLf & logFile, _
+               vbCritical, "R Error"
+        GoTo Cleanup
+    End If
+    
+    ' ===== STEP 7: Check outputs =====
+    If Dir(outSummary) = "" Then
+        Dim logContent As String
+        logContent = ReadLogFile(logFile)
+        
+        MsgBox "Variance analysis failed." & vbCrLf & vbCrLf & _
+               "R completed but did not create output file." & vbCrLf & vbCrLf & _
+               "Log:" & vbCrLf & _
+               "─────────────────────────────────" & vbCrLf & _
+               logContent & vbCrLf & _
+               "─────────────────────────────────", _
+               vbCritical, "Analysis Failed"
+        GoTo Cleanup
+    End If
+    
+    ' ===== STEP 8: Prepare results sheet =====
+    Application.StatusBar = "Importing results..."
+    Set resultsSheet = PrepareResultsSheet(wb, "Variance_Analysis")
+    
+    ' Add title
+    resultsSheet.Range("A1").Value = "HCD VARIANCE COMPONENTS ANALYSIS (ENHANCED)"
+    resultsSheet.Range("A1").Font.Bold = True
+    resultsSheet.Range("A1").Font.Size = 14
+    
+    resultsSheet.Range("A2").Value = "Analysis Date: " & Format(Now, "yyyy-mm-dd hh:mm:ss")
+    resultsSheet.Range("A2").Font.Italic = True
+    
+    ' Import summary table
+    ImportCSVToSheet resultsSheet, outSummary, "A4"
+    
+    With resultsSheet.Range("A4").CurrentRegion.Rows(1)
+        .Font.Bold = True
+        .Interior.Color = RGB(200, 200, 200)
+    End With
+    
+    resultsSheet.Range("A4").CurrentRegion.Columns.AutoFit
+    
+    ' Insert STATISTICIAN-STYLE plot (Figure 1 format) - IN COLUMN H
+    If Dir(outStatPlot) <> "" Then
+        Dim figRow As Long
+        figRow = 4  ' Start at row 4, aligned with table
+        
+        resultsSheet.Range("H" & figRow).Value = "Figure 1: Positive Control Mutation Frequency by Study Number and Sampling Day"
+        resultsSheet.Range("H" & figRow).Font.Bold = True
+        resultsSheet.Range("H" & figRow).Font.Size = 11
+        
+        InsertPlot resultsSheet, outStatPlot, figRow + 1, 8  ' Column H = 8
+    End If
+    
+    ' Insert ENHANCED plot (summary by day) - BELOW Figure 1 in COLUMN H
+    If Dir(outEnhPlot) <> "" Then
+        Dim summaryRow As Long
+        summaryRow = figRow + 28  ' Leave space for Figure 1 (approximately 25 rows + spacing)
+        
+        resultsSheet.Range("H" & summaryRow).Value = "Summary Plot: Mutation Frequency by Sampling Day"
+        resultsSheet.Range("H" & summaryRow).Font.Bold = True
+        resultsSheet.Range("H" & summaryRow).Font.Size = 11
+        
+        InsertPlot resultsSheet, outEnhPlot, summaryRow + 1, 8  ' Column H = 8
+    End If
+    
+    ' ===== STEP 9: Save =====
+    Application.StatusBar = "Saving workbook..."
+    wb.Save
+    
+    ' ===== STEP 10: Cleanup =====
+Cleanup:
+    On Error Resume Next
+    ' Don't delete log file - user might want to see it
+    Kill exportCSV
+    Kill outSummary
+    Kill outPlots
+    Kill outStatPlot
+    Kill outEnhPlot
+    On Error GoTo 0
+    
+    Dim elapsedTime As Double
+    elapsedTime = Timer - startTime
+    
+    Application.StatusBar = False
+    
+    If exitCode = 0 Then
+        MsgBox "Variance analysis complete!" & vbCrLf & vbCrLf & _
+               "Results in 'Variance_Analysis' sheet" & vbCrLf & _
+               "Processing time: " & Format(elapsedTime, "0.0") & " seconds", _
+               vbInformation, "Success"
+    End If
+    
+    Exit Sub
+
+ErrorHandler:
+    Application.StatusBar = False
+    Application.ScreenUpdating = True
+    MsgBox "Error " & Err.Number & ": " & Err.Description, vbCritical, "Error"
+    Resume Cleanup
+    
+End Sub
+
+' ============================================================
+' HELPER FUNCTIONS
+' ============================================================
+
+Private Function ReadLogFile(logPath As String) As String
+    ' Read log file and return first 500 characters
+    Dim fso As Object
+    Dim ts As Object
+    Dim content As String
+    
+    On Error Resume Next
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    
+    If fso.FileExists(logPath) Then
+        Set ts = fso.OpenTextFile(logPath, 1) ' ForReading = 1
+        content = ts.ReadAll
+        ts.Close
+        
+        ' Truncate if too long for message box
+        If Len(content) > 500 Then
+            ReadLogFile = Left(content, 500) & vbCrLf & "... (truncated)"
+        Else
+            ReadLogFile = content
+        End If
+    Else
+        ReadLogFile = "(Log file not found)"
+    End If
+    
+    On Error GoTo 0
+End Function
+
+Private Sub ExportSheetToCSV(ws As Worksheet, csvPath As String)
+    ' Simple but robust CSV export that works with R
+    Dim tempWb As Workbook
+    
+    On Error GoTo ExportError
+    
+    ' Copy sheet to new workbook
+    ws.Copy
+    Set tempWb = ActiveWorkbook
+    
+    ' Save as CSV with Unicode encoding
+    Application.DisplayAlerts = False
+    tempWb.SaveAs Filename:=csvPath, FileFormat:=xlCSVUTF8, CreateBackup:=False, Local:=False
+    tempWb.Close SaveChanges:=False
+    Application.DisplayAlerts = True
+    
+    Exit Sub
+    
+ExportError:
+    Application.DisplayAlerts = True
+    If Not tempWb Is Nothing Then tempWb.Close SaveChanges:=False
+    Err.Raise Err.Number, "ExportSheetToCSV", Err.Description
+End Sub
+
+Private Function PrepareResultsSheet(wb As Workbook, sheetName As String) As Worksheet
+    Dim ws As Worksheet
+    Dim shp As Shape
+    On Error Resume Next
+    Set ws = wb.Sheets(sheetName)
+    On Error GoTo 0
+    If ws Is Nothing Then
+        Set ws = wb.Sheets.Add(After:=wb.Sheets(wb.Sheets.Count))
+        ws.Name = sheetName
+        ws.Tab.Color = RGB(150, 100, 255)
+    Else
+        ws.Cells.Clear
+        For Each shp In ws.Shapes: shp.Delete: Next shp
+    End If
+    Set PrepareResultsSheet = ws
+End Function
+
+Private Sub ImportCSVToSheet(ws As Worksheet, csvPath As String, topLeftCell As String)
+    On Error GoTo ImportError
+    With ws.QueryTables.Add(Connection:="TEXT;" & csvPath, Destination:=ws.Range(topLeftCell))
+        .TextFileParseType = xlDelimited
+        .TextFileCommaDelimiter = True
+        .Refresh BackgroundQuery:=False
+        .Delete
+    End With
+    Exit Sub
+ImportError:
+    MsgBox "Warning: Could not import " & csvPath, vbExclamation
+End Sub
+
+Private Sub InsertPlot(ws As Worksheet, pngPath As String, startRow As Long, startCol As Long)
+    Dim pic As Shape
+    On Error GoTo PlotError
+    Set pic = ws.Shapes.AddPicture( _
+        Filename:=pngPath, _
+        LinkToFile:=msoFalse, _
+        SaveWithDocument:=msoTrue, _
+        Left:=ws.Cells(startRow, startCol).Left, _
+        Top:=ws.Cells(startRow, startCol).Top, _
+        Width:=600, _
+        Height:=360)
+    pic.LockAspectRatio = msoTrue
+    Exit Sub
+PlotError:
+    ' Silently skip
+End Sub
