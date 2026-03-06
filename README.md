@@ -70,7 +70,7 @@ The QC script:
    - `Action (outside 3σ)`
 8. Produces a control chart and summary outputs
 
-This workflow is intended for routine monitoring of historical control mutation frequency performance. :contentReference[oaicite:4]{index=4}
+This workflow is intended for routine monitoring of historical control mutation frequency performance. 
 
 ### Example Command
 
